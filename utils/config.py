@@ -1,5 +1,6 @@
 import argparse
 import torch
+import os
 from dataclasses import dataclass, field
 from typing import List
 from omegaconf import OmegaConf
@@ -52,6 +53,23 @@ class Configuration:
         base_cfg.lora = lora_cfg
         return OmegaConf.to_container(base_cfg, resolve=True)
 
+    
+    @classmethod
+    def from_yaml(cls, main_cfg_path=None, lora_cfg_path=None):
+        # This will only be used if YAML files are present and wanted
+        if main_cfg_path and os.path.exists(main_cfg_path):
+            base_cfg = OmegaConf.load(main_cfg_path)
+            if lora_cfg_path and os.path.exists(lora_cfg_path):
+                lora_cfg = OmegaConf.load(lora_cfg_path)
+                base_cfg.lora = lora_cfg
+            cfg_dict = OmegaConf.to_container(base_cfg, resolve=True)
+            # Flattening/mapping nested dicts to dataclass if needed
+            lora = UserLoRAConfig(**cfg_dict["lora"]) if "lora" in cfg_dict else UserLoRAConfig()
+            cfg_dict.pop("lora", None)
+            return cls(**cfg_dict, lora=lora)
+        else:
+            return cls()  # Return default config
+    
     @classmethod
     def from_args(cls):
         cfg_dict = cls.load()  # Load YAML as dict

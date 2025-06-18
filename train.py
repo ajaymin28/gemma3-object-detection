@@ -1,61 +1,14 @@
-
-import logging
-
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
-
-FastModel = None
-# Optional – comment below imports if you are not planinng to use unsloth
-# try: from unsloth import FastModel
-# except ImportError as e: logger.warning(f"Unsloth import error : {e}")
-# except NotImplementedError as e: logger.warning(f"Unsloth NotImplementedError error : {e}")
-
-
+from utils.logman import logger
 import wandb
-from functools import partial
 import torch
 from torch.amp import autocast, GradScaler
-from datasets import load_dataset
-from torch.utils.data import DataLoader
-from transformers import AutoProcessor, Gemma3ForConditionalGeneration
-from transformers import BitsAndBytesConfig
+from transformers import AutoProcessor
 
 from utils.config import Configuration
-from utils.utilities import train_collate_function, train_collate_function_unsloth
+from utils.utilities import load_model
 from utils.utilities import save_best_model, push_to_hub, load_saved_model
-from peft import get_peft_config, get_peft_model, LoraConfig
-from peft import prepare_model_for_kbit_training
-import albumentations as A
-
-
-augmentations = A.Compose([
-    A.Resize(height=896, width=896),
-    A.HorizontalFlip(p=0.5),
-    A.ColorJitter(p=0.2),
-], bbox_params=A.BboxParams(format='coco', label_fields=['category_ids'], filter_invalid_bboxes=True))
-
-
-def get_dataloader(args:Configuration,processor=None,tokenizer=None, split="train", is_unsloth=False):
-    logger.info(f"Fetching the dataset: {cfg.dataset_id}:{split}")
-    train_dataset = load_dataset(cfg.dataset_id, split=split)
-
-    if is_unsloth:
-        # <- Use the Unsloth tokenizer instead of processor
-        train_collate_fn = partial(train_collate_function_unsloth,tokenizer=tokenizer,dtype=args.dtype,transform=augmentations)
-    else:
-        train_collate_fn = partial(train_collate_function, processor=processor, dtype=args.dtype, transform=augmentations)
-
-    logger.info("Building data loader")
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=args.batch_size,
-        collate_fn=train_collate_fn,
-        shuffle=True,
-        pin_memory=True,
-    )
-    return train_dataloader
+from utils.gpu_utils import memory_stats
+from utils.utilities import get_dataloader
 
 def step(model, batch, device, use_fp16, optimizer=None, scaler=None):
     """
@@ -100,65 +53,6 @@ def validate_all(model, val_loader, cfg, use_fp16,val_batches=5):
     model.train()
     return sum(losses) / len(losses) if len(losses)> 0 else 0
 
-import psutil
-import os
-
-def memory_stats(get_dict=False, print_mem_usage=True, device=None):
-    stats = {
-            "cpu": "",
-            "ram": "",
-            "cuda_free": "",
-            "cuda_total": "",
-            "cuda_allocated": "",
-            "cuda_reserved": "",
-            "peak_vram_allocated_mb": "",
-    }
-
-    cuda_freeMem = 0
-    cuda_total = 0
-    cuda_allocated = 0
-    cuda_reserved = 0
-    peak_vram_allocated_bytes = 0
-    peak_vram_allocated_mb = 0
-    
-    if torch.cuda.is_available():
-        if device is None:
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        try:
-            cuda_freeMem, cuda_total  = torch.cuda.mem_get_info()
-            cuda_total = cuda_total/1024**2
-            cuda_freeMem = cuda_freeMem/1024**2
-        except: pass
-            
-        try:
-            cuda_allocated = torch.cuda.memory_allocated()/1024**2
-            cuda_reserved = torch.cuda.memory_reserved()/1024**2
-        except: pass
-
-        try:
-            peak_vram_allocated_bytes = torch.cuda.max_memory_allocated(device)
-            peak_vram_allocated_mb = peak_vram_allocated_bytes / (1024 ** 2)
-        except: pass
-
-        stats["cuda_free"] = cuda_freeMem
-        stats["cuda_total"] = cuda_total
-        stats["cuda_allocated"] = round(cuda_allocated,3)
-        stats["cuda_reserved"] = round(cuda_reserved,3)
-        stats["peak_vram_allocated_mb"] = round(peak_vram_allocated_mb,3)
-
-    process = psutil.Process(os.getpid())
-    ram_mem_perc = process.memory_percent()
-    cpu_usage = psutil.cpu_percent()
-
-    stats["cpu"] = cpu_usage
-    stats["ram"] = ram_mem_perc
-
-    if print_mem_usage:
-        logger.info(f"CPU: {cpu_usage:.2f}% RAM: {ram_mem_perc:.2f}% GPU memory Total: [{cuda_total:.2f}] Available: [{cuda_freeMem:.2f}]  Allocated: [{cuda_allocated:.2f}] Reserved: [{cuda_reserved:.2f}] Cuda Peak Mem: {peak_vram_allocated_mb:.2f}")
-
-    if get_dict:
-        return stats
 
 def train_model(model, optimizer, cfg:Configuration, train_loader, val_loader=None):
 
@@ -203,7 +97,7 @@ def train_model(model, optimizer, cfg:Configuration, train_loader, val_loader=No
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                save_best_model(model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"}, logger)
+                save_best_model(model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"})
 
             ## Model seem to converge before even first epoch finishes for LoRA. set max_step_to_train<=0 to disable this.
             if global_step>cfg.max_step_to_train-1 and cfg.max_step_to_train>0:
@@ -218,98 +112,7 @@ def train_model(model, optimizer, cfg:Configuration, train_loader, val_loader=No
     return model
 
 
-def load_model(cfg:Configuration):
 
-    lcfg = cfg.lora
-    tokenizer = None
-
-    if cfg.use_unsloth and FastModel is not None:
-
-        # TODO: For LoRA and QLoRa change unsloth config accordigly, generally load_in_4bit, load_in_8bit will be False or LoRA
-        model, tokenizer = FastModel.from_pretrained(
-            model_name = "unsloth/gemma-3-4b-it",
-            max_seq_length = 2048, # Choose any for long context!
-            load_in_4bit = True,  # 4 bit quantization to reduce memory
-            load_in_8bit = False, # [NEW!] A bit more accurate, uses 2x memory
-            full_finetuning = False, # [NEW!] We have full finetuning now!
-            # token = os.environ["HF_TOKEN"] # TODO: Handle this
-        )
-
-        if cfg.finetune_method in {"lora", "qlora"}:
-            model = FastModel.get_peft_model(
-                model,
-                finetune_vision_layers     = True, # Turn off for just text!
-                finetune_language_layers   = True,  # Should leave on!
-                finetune_attention_modules = True,  # Attention good for GRPO
-                finetune_mlp_modules       = True,  # SHould leave on always!
-
-                r=lcfg.r, # Larger = higher accuracy, but might overfit
-                lora_alpha=lcfg.alpha, # Recommended alpha == r at least
-                lora_dropout=lcfg.dropout,
-                bias = "none",
-                random_state = 3407
-                # TODO add rs_lora and dora
-            )
-
-
-    else:
-        quant_args = {}
-        # Enable quantization only for QLoRA
-        if cfg.finetune_method in {"qlora"}:
-            bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=cfg.dtype,
-            )
-            quant_args = {"quantization_config": bnb_config, "device_map": "auto"}
-
-        model = Gemma3ForConditionalGeneration.from_pretrained(
-            cfg.model_id,
-            torch_dtype=cfg.dtype,
-            attn_implementation="eager",
-            **quant_args,
-        )
-
-
-        if cfg.finetune_method in {"lora", "qlora"}:
-
-            if cfg.finetune_method=="qlora":
-                model = prepare_model_for_kbit_training(model)
-
-
-            lora_cfg = LoraConfig(
-                r=lcfg.r,
-                lora_alpha=lcfg.alpha,
-                target_modules=lcfg.target_modules,
-                lora_dropout=lcfg.dropout,
-                bias="none",
-                use_dora=True if cfg.finetune_method=="qlora" else False,
-                use_rslora=True # Rank-Stabilized LoRA  --> `lora_alpha/math.sqrt(r)`
-            )
-            
-            model = get_peft_model(model, lora_cfg)
-            memory_stats()
-            torch.cuda.empty_cache() # TODO: Do I need this? Just want to make sure I have mem cleaned up before training starts.
-            logger.info(f"called: torch.cuda.empty_cache()")
-            memory_stats()
-
-        elif cfg.finetune_method == "FFT":
-            # handled below before printing params
-            pass
-        else:
-            raise ValueError(f"Unknown finetune_method: {cfg.finetune_method}")
-    
-    for n, p in model.named_parameters():
-        if cfg.finetune_method == "FFT": # TODO: should FFT finetune all components? or just some, change FFT name to just FT?
-            p.requires_grad = any(part in n for part in cfg.mm_tunable_parts)
-        if p.requires_grad:
-            print(f"{n} will be finetuned")
-    
-    if cfg.finetune_method in {"lora", "qlora"}:
-        model.print_trainable_parameters()
-
-    return model, tokenizer
 
 
 if __name__ == "__main__":
@@ -317,7 +120,7 @@ if __name__ == "__main__":
     cfg = Configuration.from_args()  # config.yaml is overriden by CLI arguments
 
     # 2. Load model
-    logger.info(f"Getting model for {cfg.finetune_method}")
+    logutils.info(f"Getting model for {cfg.finetune_method}")
     # loads model based on config. Unsloth, lora, qlora, FFT
     model, tokenizer = load_model(cfg)
 
@@ -345,8 +148,8 @@ if __name__ == "__main__":
     train_model(model, optimizer, cfg, train_dataloader, validation_dataloader)
 
     # 6. Loading best model back
-    model, tokenizer = load_saved_model(cfg, is_lora=cfg.finetune_method in {"lora", "qlora"}, device="cuda", logger=logger)
-    logger.info(f"Pushing to hub at: {cfg.checkpoint_id}")
+    model, tokenizer = load_saved_model(cfg, is_lora=cfg.finetune_method in {"lora", "qlora"}, device="cuda", logger=logutils)
+    logutils.info(f"Pushing to hub at: {cfg.checkpoint_id}")
     if cfg.push_model_to_hub:
         push_to_hub(model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"})
 
@@ -355,4 +158,4 @@ if __name__ == "__main__":
     
     # 8. Wrap up
     wandb.finish()
-    logger.info("Train finished")
+    logutils.info("Train finished")

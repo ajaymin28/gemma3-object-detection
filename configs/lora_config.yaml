@@ -14,4 +14,3 @@ max_seq_length: 2048  # Unsloth will RoPE-scale
 # LoRA-specific: no quantization
 load_in_4bit: false
 load_in_8bit: false
-quantization_config: null
