@@ -1,3 +1,4 @@
+from utils.init_unsloth import FastModel
 from utils.logman import logger
 import wandb
 import torch
@@ -97,7 +98,7 @@ def train_model(model, optimizer, cfg:Configuration, train_loader, val_loader=No
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                save_best_model(model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"})
+                save_best_model(f"checkpoints/{cfg.checkpoint_id}_best",model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"})
 
             ## Model seem to converge before even first epoch finishes for LoRA. set max_step_to_train<=0 to disable this.
             if global_step>cfg.max_step_to_train-1 and cfg.max_step_to_train>0:
@@ -120,18 +121,18 @@ if __name__ == "__main__":
     cfg = Configuration.from_args()  # config.yaml is overriden by CLI arguments
 
     # 2. Load model
-    logutils.info(f"Getting model for {cfg.finetune_method}")
+    logger.info(f"Getting model for {cfg.finetune_method}")
     # loads model based on config. Unsloth, lora, qlora, FFT
     model, tokenizer = load_model(cfg)
 
     # 3. Get Data
     if cfg.use_unsloth:
-        train_dataloader = get_dataloader(args=cfg,tokenizer=tokenizer, split="train",is_unsloth=True)
-        validation_dataloader = get_dataloader(args=cfg,tokenizer=tokenizer, split="validation",is_unsloth=True)
+        train_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="train",is_unsloth=True)
+        validation_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="validation",is_unsloth=True)
     else:
         processor = AutoProcessor.from_pretrained(cfg.model_id)
-        train_dataloader = get_dataloader(args=cfg, processor=processor, split="train")
-        validation_dataloader = get_dataloader(args=cfg, processor=processor, split="validation")
+        train_dataloader = get_dataloader(cfg=cfg, processor=processor, split="train")
+        validation_dataloader = get_dataloader(cfg=cfg, processor=processor, split="validation")
     
     # Credits to Sayak Paul for this beautiful expression
     params_to_train = list(filter(lambda x: x.requires_grad, model.parameters()))
@@ -148,8 +149,8 @@ if __name__ == "__main__":
     train_model(model, optimizer, cfg, train_dataloader, validation_dataloader)
 
     # 6. Loading best model back
-    model, tokenizer = load_saved_model(cfg, is_lora=cfg.finetune_method in {"lora", "qlora"}, device="cuda", logger=logutils)
-    logutils.info(f"Pushing to hub at: {cfg.checkpoint_id}")
+    model, tokenizer = load_saved_model(f"checkpoints/{cfg.checkpoint_id}_best",cfg, is_lora=cfg.finetune_method in {"lora", "qlora"}, device="cuda")
+    logger.info(f"Pushing to hub at: {cfg.checkpoint_id}")
     if cfg.push_model_to_hub:
         push_to_hub(model, cfg, tokenizer, cfg.finetune_method in {"lora", "qlora"})
 
@@ -158,4 +159,4 @@ if __name__ == "__main__":
     
     # 8. Wrap up
     wandb.finish()
-    logutils.info("Train finished")
+    logger.info("Train finished")

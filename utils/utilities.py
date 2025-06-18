@@ -84,9 +84,8 @@ def push_to_hub(model, cfg, tokenizer=None, is_lora=False):
 
 
 
-def save_best_model(model, cfg, tokenizer=None, is_lora=False):
+def save_best_model(save_path, model, cfg, tokenizer=None, is_lora=False):
     """Save LoRA adapter or full model based on config."""
-    save_path = f"checkpoints/{cfg.checkpoint_id}_best"
     os.makedirs(save_path, exist_ok=True)
     if is_lora:
         logger.info(f"Saving LoRA adapter to {save_path}")
