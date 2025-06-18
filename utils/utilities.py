@@ -98,35 +98,35 @@ def save_best_model(model, cfg, tokenizer=None, is_lora=False):
         torch.save(model.state_dict(), f"{save_path}.pt")
 
 
-def load_saved_model(cfg, is_lora=False, device=None):
+def load_saved_model(save_path, cfg, is_lora=False, device=None, logger=None):
     """
     Load LoRA adapter or full model based on config.
     Returns (model, tokenizer)
     """
-    save_path = f"checkpoints/{cfg.checkpoint_id}_best"
     tokenizer = None
 
     if cfg.use_unsloth:
 
-        logger.info(f"Loading LoRA adapter from {save_path}")
+        if logger: logger.info(f"Loading LoRA adapter from {save_path}")
 
         from unsloth import FastModel
         model, tokenizer = FastModel.from_pretrained(
             model_name = save_path, # YOUR MODEL YOU USED FOR TRAINING
             load_in_4bit = True, # Set to False for 16bit LoRA
+            device_map="auto"
         )
         return model, tokenizer
 
     else:
         if is_lora:
-            logger.info(f"Loading LoRA adapter from {save_path}")
+            if logger: logger.info(f"Loading LoRA adapter from {save_path}")
             # Load base model first, then LoRA weights
             base_model = AutoModel.from_pretrained(cfg.model_id, device_map=device or "auto")
             model = PeftModel.from_pretrained(base_model, save_path, device_map=device or "auto")
             if os.path.exists(os.path.join(save_path, "tokenizer_config.json")):
                 tokenizer = AutoTokenizer.from_pretrained(save_path)
         else:
-            logger.info(f"Loading full model weights from {save_path}.pt")
+            if logger: logger.info(f"Loading full model weights from {save_path}.pt")
             model = AutoModel.from_pretrained(cfg.model_id, device_map=device or "auto")
             model.load_state_dict(torch.load(f"{save_path}.pt", map_location=device or "cpu"))
             if os.path.exists(os.path.join(save_path, "tokenizer_config.json")):
@@ -150,7 +150,7 @@ def load_model(cfg:Configuration, isTrain=True):
             # token = os.environ["HF_TOKEN"] # TODO: Handle this
         )
 
-        if cfg.finetune_method in {"lora", "qlora"}:
+        if cfg.finetune_method in {"lora", "qlora"} and isTrain:
             model = FastModel.get_peft_model(
                 model,
                 finetune_vision_layers     = True, # Turn off for just text!
@@ -189,7 +189,7 @@ def load_model(cfg:Configuration, isTrain=True):
         )
 
 
-        if cfg.finetune_method in {"lora", "qlora"}:
+        if cfg.finetune_method in {"lora", "qlora"} and isTrain:
 
             if cfg.finetune_method=="qlora":
                 model = prepare_model_for_kbit_training(model)
@@ -206,16 +206,17 @@ def load_model(cfg:Configuration, isTrain=True):
             )
             
             model = get_peft_model(model, lora_cfg)
-            memory_stats()
-            torch.cuda.empty_cache() # TODO: Do I need this? Just want to make sure I have mem cleaned up before training starts.
-            logger.info(f"called: torch.cuda.empty_cache()")
-            memory_stats()
 
         elif cfg.finetune_method == "FFT":
             # handled below before printing params
             pass
         else:
             raise ValueError(f"Unknown finetune_method: {cfg.finetune_method}")
+
+    memory_stats()
+    torch.cuda.empty_cache() # TODO: Do I need this? Just want to make sure I have mem cleaned up before training starts.
+    logger.info(f"called: torch.cuda.empty_cache()")
+    memory_stats()
     
     
     for n, p in model.named_parameters():

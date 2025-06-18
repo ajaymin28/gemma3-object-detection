@@ -8,7 +8,7 @@ from utils.config import Configuration
 from utils.utilities import load_model
 from utils.utilities import save_best_model, push_to_hub, load_saved_model
 from utils.gpu_utils import memory_stats
-from utils.utilities import get_dataloader
+from utils.dataloaders import get_dataloader
 
 def step(model, batch, device, use_fp16, optimizer=None, scaler=None):
     """

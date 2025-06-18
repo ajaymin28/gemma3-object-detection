@@ -12,7 +12,7 @@ max_step_to_train: 100
 validate_steps_freq: 10
 
 finetune_method: "qlora"   # FFT | lora | qlora
-use_unsloth: false
+use_unsloth: true
 
 
 mm_tunable_parts:

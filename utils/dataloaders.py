@@ -96,9 +96,11 @@ def train_collate_function(batch_of_samples, processor, dtype, transform=None):
 def test_collate_function_unsloth(batch_of_samples, tokenizer, dtype):
     images = []
     prompts = []
+    image_ids = []
     for sample in batch_of_samples:
         images.append([sample["image"]])
         prompts.append(f"{tokenizer.tokenizer.boi_token} detect \n\n")
+        image_ids.append(sample["image_id"])
 
     # Use tokenizer directly (Unsloth tokenizer supports vision inputs for Gemma3)
     batch = tokenizer(
@@ -111,20 +113,22 @@ def test_collate_function_unsloth(batch_of_samples, tokenizer, dtype):
     batch["pixel_values"] = batch["pixel_values"].to(
         dtype
     )  # to check with the implementation
-    return batch, images
+    return batch, images, image_ids
 
 def test_collate_function(batch_of_samples, processor, dtype):
     images = []
     prompts = []
+    image_ids = []
     for sample in batch_of_samples:
         images.append([sample["image"]])
         prompts.append(f"{processor.tokenizer.boi_token} detect \n\n")
+        image_ids.append(sample["image_id"])
 
     batch = processor(images=images, text=prompts, return_tensors="pt", padding=True)
     batch["pixel_values"] = batch["pixel_values"].to(
         dtype
     )  # to check with the implementation
-    return batch, images
+    return batch, images, image_ids
 
 def get_dataloader(cfg:Configuration,processor=None,tokenizer=None, split="train", is_unsloth=False):
     from datasets import load_dataset

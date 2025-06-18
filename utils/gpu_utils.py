@@ -10,11 +10,11 @@ def memory_stats(get_dict=False, print_mem_usage=True, device=None):
     stats = {
             "cpu": "",
             "ram": "",
-            "cuda_free": "",
-            "cuda_total": "",
-            "cuda_allocated": "",
-            "cuda_reserved": "",
-            "peak_vram_allocated_mb": "",
+            "cuda_free": .0,
+            "cuda_total": .0,
+            "cuda_allocated": .0,
+            "cuda_reserved": .0,
+            "peak_vram_allocated_mb": .0,
     }
 
     cuda_freeMem = 0
@@ -31,25 +31,20 @@ def memory_stats(get_dict=False, print_mem_usage=True, device=None):
         
         try:
             cuda_freeMem, cuda_total  = torch.cuda.mem_get_info()
-            cuda_total = cuda_total/MB_eval_exp
-            cuda_freeMem = cuda_freeMem/MB_eval_exp
+            stats["cuda_total"] = cuda_total = round(cuda_total/MB_eval_exp,2)
+            stats["cuda_free"] = cuda_freeMem = round(cuda_freeMem/MB_eval_exp,2)
         except: pass
             
         try:
-            cuda_allocated = torch.cuda.memory_allocated()/MB_eval_exp
-            cuda_reserved = torch.cuda.memory_reserved()/MB_eval_exp
+            stats["cuda_allocated"] = cuda_allocated = round(torch.cuda.memory_allocated()/MB_eval_exp, 3)
+            stats["cuda_reserved"] = cuda_reserved = round(torch.cuda.memory_reserved()/MB_eval_exp, 3)
         except: pass
 
         try:
             peak_vram_allocated_bytes = torch.cuda.max_memory_allocated(device)
-            peak_vram_allocated_mb = peak_vram_allocated_bytes / (MB_eval_exp)
+            stats["peak_vram_allocated_mb"] = peak_vram_allocated_mb  = peak_vram_allocated_bytes / (MB_eval_exp)
         except: pass
 
-        stats["cuda_free"] = cuda_freeMem
-        stats["cuda_total"] = cuda_total
-        stats["cuda_allocated"] = round(cuda_allocated,3)
-        stats["cuda_reserved"] = round(cuda_reserved,3)
-        stats["peak_vram_allocated_mb"] = round(peak_vram_allocated_mb,3)
 
     process = psutil.Process(os.getpid())
     ram_mem_perc = process.memory_percent()
@@ -59,7 +54,7 @@ def memory_stats(get_dict=False, print_mem_usage=True, device=None):
     stats["ram"] = ram_mem_perc
 
     if print_mem_usage:
-        logger.info(f"CPU: {cpu_usage:.2f}% RAM: {ram_mem_perc:.2f}% GPU memory Total: [{cuda_total:.2f}] Available: [{cuda_freeMem:.2f}]  Allocated: [{cuda_allocated:.2f}] Reserved: [{cuda_reserved:.2f}] Cuda Peak Mem: {peak_vram_allocated_mb:.2f}")
+        logger.info(f"CPU: {cpu_usage:.2f}% RAM: {ram_mem_perc:.2f}% GPU memory Total: [{cuda_total:.2f}] Available: [{cuda_freeMem:.2f}]  Allocated: [{cuda_allocated:.2f}] Reserved: [{cuda_reserved:.2f}] Cuda Peak Mem: [{peak_vram_allocated_mb:.2f}]")
 
     if get_dict:
         return stats
