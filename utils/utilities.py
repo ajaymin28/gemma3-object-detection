@@ -140,11 +140,12 @@ def load_model(cfg:Configuration, isTrain=True):
     if cfg.use_unsloth and FastModel is not None:
 
         # TODO: For LoRA and QLoRa change unsloth config accordigly, generally load_in_4bit, load_in_8bit will be False or LoRA
+        logger.info(f"Loading model : {cfg.model_id}")
         model, tokenizer = FastModel.from_pretrained(
             model_name = cfg.model_id,
             max_seq_length = 2048, # Choose any for long context!
-            load_in_4bit = True,  # 4 bit quantization to reduce memory
-            load_in_8bit = False, # [NEW!] A bit more accurate, uses 2x memory
+            load_in_4bit = True if cfg.finetune_method=="qlora" and cfg.lora.load_in_4bit else False,  # 4 bit quantization to reduce memory
+            load_in_8bit = True if cfg.finetune_method=="qlora" and cfg.lora.load_in_8bit else False, # [NEW!] A bit more accurate, uses 2x memory
             full_finetuning = False, # [NEW!] We have full finetuning now!
             # token = os.environ["HF_TOKEN"] # TODO: Handle this
         )
@@ -171,9 +172,9 @@ def load_model(cfg:Configuration, isTrain=True):
         # Enable quantization only for QLoRA
         if cfg.finetune_method in {"qlora"}:
             bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
+                load_in_4bit=True,  #  TODO: load from config
+                bnb_4bit_use_double_quant=True,  #  TODO: load from config
+                bnb_4bit_quant_type="nf4",  #  TODO: load from config
                 bnb_4bit_compute_dtype=cfg.dtype,
             )
             quant_args = {"quantization_config": bnb_config, "device_map": "auto"}

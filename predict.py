@@ -48,6 +48,7 @@ if __name__ == "__main__":
     sample, sample_images, image_ids = next(iter(test_dataloader))
 
     logger.info("before empty cache")
+    memory_stats()
     torch.cuda.empty_cache()
     logger.info("after empty cache")
     memory_stats()
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     for output_text, sample_image, image_id in zip(decoded, sample_images, image_ids):
         image = sample_image[0]
         width, height = image.size
-        logger.info(output_text, image_id)
+        logger.info(f"image id: {image_id}  model output: {output_text.strip()}")
         try:
             visualize_bounding_boxes(
                 image, output_text, width, height, f"outputs/output_{file_count}.png"
@@ -88,5 +89,5 @@ if __name__ == "__main__":
         except Exception as e:
             logger.info(f"error : {e}")
 
-    with open("infer_data_unsloth_qlora.pkl", "wb") as f:
+    with open("outputs/infer_data_unsloth_qlora_300steps.pkl", "wb") as f:
         pickle.dump(infer_data,f)

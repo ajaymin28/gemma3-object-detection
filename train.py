@@ -92,7 +92,7 @@ def train_model(model, optimizer, cfg:Configuration, train_loader, val_loader=No
                 logger.info(f"Epoch:{epoch} Step:{global_step} Loss:{loss:.4f}")
                 wandb.log({"train/loss": loss, "epoch": epoch}, step=global_step)
             if val_loader and global_step % cfg.validate_steps_freq == 0:
-                val_loss = validate_all(model, val_loader, cfg, use_fp16, val_batches=1) # if val_batches>0 the code will validate on that many batches only. -1 to disable this
+                val_loss = validate_all(model, val_loader, cfg, use_fp16, val_batches=-1) # if val_batches>0 the code will validate on that many batches only. -1 to disable this
                 logger.info(f"Step:{global_step} Val Loss:{val_loss:.4f}")
                 wandb.log({"val/loss": val_loss, "epoch": epoch}, step=global_step)
 
@@ -125,28 +125,28 @@ if __name__ == "__main__":
     # loads model based on config. Unsloth, lora, qlora, FFT
     model, tokenizer = load_model(cfg)
 
-    # 3. Get Data
-    if cfg.use_unsloth:
-        train_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="train",is_unsloth=True)
-        validation_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="validation",is_unsloth=True)
-    else:
-        processor = AutoProcessor.from_pretrained(cfg.model_id)
-        train_dataloader = get_dataloader(cfg=cfg, processor=processor, split="train")
-        validation_dataloader = get_dataloader(cfg=cfg, processor=processor, split="validation")
+    # # 3. Get Data
+    # if cfg.use_unsloth:
+    #     train_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="train",is_unsloth=True)
+    #     validation_dataloader = get_dataloader(cfg=cfg,tokenizer=tokenizer, split="validation",is_unsloth=True)
+    # else:
+    #     processor = AutoProcessor.from_pretrained(cfg.model_id)
+    #     train_dataloader = get_dataloader(cfg=cfg, processor=processor, split="train")
+    #     validation_dataloader = get_dataloader(cfg=cfg, processor=processor, split="validation")
     
-    # Credits to Sayak Paul for this beautiful expression
-    params_to_train = list(filter(lambda x: x.requires_grad, model.parameters()))
-    optimizer = torch.optim.AdamW(params_to_train, lr=cfg.learning_rate)
+    # # Credits to Sayak Paul for this beautiful expression
+    # params_to_train = list(filter(lambda x: x.requires_grad, model.parameters()))
+    # optimizer = torch.optim.AdamW(params_to_train, lr=cfg.learning_rate)
 
-    # 5. Enable logging, need to login or set wanddb token in os.env
-    wandb.init(
-        project=cfg.wandb_project_name,
-        name=cfg.run_name if hasattr(cfg, "run_name") else None,
-        config=vars(cfg),
-    )
+    # # 5. Enable logging, need to login or set wanddb token in os.env
+    # wandb.init(
+    #     project=cfg.wandb_project_name,
+    #     name=cfg.run_name if hasattr(cfg, "run_name") else None,
+    #     config=vars(cfg),
+    # )
 
-    # 5. Actual train and validation, validation_dataloader=None to do just traing.
-    train_model(model, optimizer, cfg, train_dataloader, validation_dataloader)
+    # # 5. Actual train and validation, validation_dataloader=None to do just traing.
+    # train_model(model, optimizer, cfg, train_dataloader, validation_dataloader)
 
     # 6. Loading best model back
     model, tokenizer = load_saved_model(f"checkpoints/{cfg.checkpoint_id}_best",cfg, is_lora=cfg.finetune_method in {"lora", "qlora"}, device="cuda")
